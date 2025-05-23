@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Спасение Земли - Пиксельная игра</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: monospace;
+            background-color: #000;
+            color: #fff;
+            overflow: hidden;
+            text-align: center;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            margin: 20px auto;
+            background-color: #000;
+            border: 4px solid #fff;
+            overflow: hidden;
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        #loading-screen, #start-screen, #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        #game-over {
+            display: none;
+        }
+        
+        #game-ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            font-family: monospace;
+            font-size: 16px;
+            text-align: left;
+        }
+        
+        h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #fff;
+            text-shadow: 4px 4px 0 #f00;
+            font-family: monospace;
+        }
+        
+        p {
+            font-size: 16px;
+            margin-bottom: 20px;
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.5;
+            font-family: monospace;
+        }
+        
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #f00;
+            border: 4px solid #fff;
+            color: white;
+            cursor: pointer;
+            font-family: monospace;
+            margin-top: 20px;
+        }
+        
+        button:hover {
+            background-color: #ff5555;
+        }
+        
+        #instructions {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="800" height="600"></canvas>
+        
+        <!-- Loading Screen -->
+        <div id="loading-screen">
+            <h1>ЗАГРУЗКА...</h1>
+            <div id="loading-progress">0%</div>
+        </div>
+        
+        <!-- Start Screen -->
+        <div id="start-screen" style="display: none;">
+            <h1>СПАСЕНИЕ ЗЕМЛИ</h1>
+            <p>Огромный метеорит приближается к Земле! Вы - последняя надежда человечества. Используйте космический корабль, чтобы уничтожить метеорит до того, как он достигнет нашей планеты!</p>
+            <button id="start-button">НАЧАТЬ МИССИЮ</button>
+            <div id="instructions">
+                Управление: СТРЕЛКИ - движение, ПРОБЕЛ - стрельба
+            </div>
+        </div>
+        
+        <!-- Game Over Screen -->
+        <div id="game-over">
+            <h1 id="game-over-title">МИССИЯ ПРОВАЛЕНА</h1>
+            <p id="game-over-message">Метеорит достиг Земли...</p>
+            <p id="final-score">Счет: 0</p>
+            <button id="restart-button">ПОВТОРИТЬ МИССИЮ</button>
+        </div>
+        
+        <!-- Game UI -->
+        <div id="game-ui">
+            <div id="score">СЧЕТ: 0</div>
+            <div id="lives">ЖИЗНИ: 3</div>
+            <div id="level">УРОВЕНЬ: 1</div>
+        </div>
+    </div>
+
+    <script>
+        // Получаем элементы DOM
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingProgress = document.getElementById('loading-progress');
+        const startScreen = document.getElementById('start-screen');
+        const startButton = document.getElementById('start-button');
+        const gameOverScreen = document.getElementById('game-over');
+        const gameOverTitle = document.getElementById('game-over-title');
+        const gameOverMessage = document.getElementById('game-over-message');
+        const finalScore = document.getElementById('final-score');
+        const restartButton = document.getElementById('restart-button');
+        const scoreDisplay = document.getElementById('score');
+        const livesDisplay = document.getElementById('lives');
+        const levelDisplay = document.getElementById('level');
+        const gameUI = document.getElementById('game-ui');
+        
+        // Константы игры
+        const PLAYER_WIDTH = 40;
+        const PLAYER_HEIGHT = 30;
+        const PLAYER_SPEED = 5;
+        const BULLET_WIDTH = 5;
+        const BULLET_HEIGHT = 10;
+        const BULLET_SPEED = 7;
+        const METEOR_LARGE_SIZE = 60;
+        const METEOR_MEDIUM_SIZE = 40;
+        const METEOR_SMALL_SIZE = 20;
+        const METEOR_SPEED_MIN = 1;
+        const METEOR_SPEED_MAX = 3;
+        const POWER_UP_SIZE = 25;
+        const POWER_UP_SPEED = 2;
+        const POWER_UP_DURATION = 10000; // 10 секунд
+        const POWER_UP_SPAWN_CHANCE = 0.02; // 2% шанс на появление при уничтожении метеорита
+        const STAR_COUNT = 100;
+        
+        // Переменные состояния игры
+        let gameActive = false;
+        let score = 0;
+        let lives = 3;
+        let level = 1;
+        let meteors = [];
+        let bullets = [];
+        let powerUps = [];
+        let stars = [];
+        let player = {
+            x: canvas.width / 2 - PLAYER_WIDTH / 2,
+            y: canvas.height - PLAYER_HEIGHT - 20,
+            width: PLAYER_WIDTH,
+            height: PLAYER_HEIGHT,
+            speed: PLAYER_SPEED,
+            isMovingLeft: false,
+            isMovingRight: false,
+            isMovingUp: false,
+            isMovingDown: false,
+            isShooting: false,
+            lastShot: 0,
+            shootDelay: 300, // Задержка между выстрелами в мс
+            powerUps: {
+                rapidFire: false,
+                rapidFireUntil: 0,
+                shield: false,
+                shieldUntil: 0,
+                doubleDamage: false,
+                doubleDamageUntil: 0
+            }
+        };
+        
+        // Цвета
+        const COLORS = {
+            background: '#000',
+            stars: ['#fff', '#aaa', '#777'],
+            player: '#00f',
+            playerShield: '#0ff',
+            bullet: '#f00',
+            bulletDoubleDamage: '#f0f',
+            meteorLarge: '#a52',
+            meteorMedium: '#b63',
+            meteorSmall: '#c74',
+            powerUpRapidFire: '#ff0',
+            powerUpShield: '#0ff',
+            powerUpDoubleDamage: '#f0f',
+            earth: '#00a',
+            earthLand: '#0a0',
+            earthClouds: '#fff',
+            text: '#fff',
+            textShadow: '#f00'
+        };
+        
+        // Инициализация игры
+        function init() {
+            // Создаем звезды для фона
+            createStars();
+            
+            // Симулируем загрузку
+            simulateLoading();
+            
+            // Добавляем обработчики событий
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+            startButton.addEventListener('click', startGame);
+            restartButton.addEventListener('click', restartGame);
+        }
+        
+        // Создание звезд для фона
+        function createStars() {
+            stars = [];
+            for (let i = 0; i < STAR_COUNT; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2 + 1,
+                    speed: Math.random() * 0.5 + 0.1,
+                    color: COLORS.stars[Math.floor(Math.random() * COLORS.stars.length)]
+                });
+            }
+        }
+        
+        // Симуляция загрузки
+        function simulateLoading() {
+            let progress = 0;
+            const loadingInterval = setInterval(() => {
+                progress += Math.random() * 10;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(loadingInterval);
+                    loadingProgress.textContent = '100%';
+                    setTimeout(() => {
+                        loadingScreen.style.display = 'none';
+                        startScreen.style.display = 'flex';
+                    }, 500);
+                } else {
+                    loadingProgress.textContent = Math.floor(progress) + '%';
+                }
+            }, 200);
+        }
+        
+        // Обработка нажатия клавиш
+        function handleKeyDown(e) {
+            if (!gameActive) return;
+            
+            switch (e.key) {
+                case 'ArrowLeft':
+                    player.isMovingLeft = true;
+                    break;
+                case 'ArrowRight':
+                    player.isMovingRight = true;
+                    break;
+                case 'ArrowUp':
+                    player.isMovingUp = true;
+                    break;
+                case 'ArrowDown':
+                    player.isMovingDown = true;
+                    break;
+                case ' ':
+                    player.isShooting = true;
+                    break;
+            }
+        }
+        
+        // Обработка отпускания клавиш
+        function handleKeyUp(e) {
+            if (!gameActive) return;
+            
+            switch (e.key) {
+                case 'ArrowLeft':
+                    player.isMovingLeft = false;
+                    break;
+                case 'ArrowRight':
+                    player.isMovingRight = false;
+                    break;
+                case 'ArrowUp':
+                    player.isMovingUp = false;
+                    break;
+                case 'ArrowDown':
+                    player.isMovingDown = false;
+                    break;
+                case ' ':
+                    player.isShooting = false;
+                    break;
+            }
+        }
+        
+        // Начало игры
+        function startGame() {
+            startScreen.style.display = 'none';
+            gameUI.style.display = 'block';
+            gameActive = true;
+            resetGame();
+            gameLoop();
+        }
+        
+        // Перезапуск игры
+        function restartGame() {
+            gameOverScreen.style.display = 'none';
+            gameUI.style.display = 'block';
+            gameActive = true;
+            resetGame();
+        }
+        
+        // Сброс игры
+        function resetGame() {
+            score = 0;
+            lives = 3;
+            level = 1;
+            meteors = [];
+            bullets = [];
+            powerUps = [];
+            
+            player.x = canvas.width / 2 - PLAYER_WIDTH / 2;
+            player.y = canvas.height - PLAYER_HEIGHT - 20;
+            player.powerUps = {
+                rapidFire: false,
+                rapidFireUntil: 0,
+                shield: false,
+                shieldUntil: 0,
+                doubleDamage: false,
+                doubleDamageUntil: 0
+            };
+            
+            // Создаем метеориты для первого уровня
+            spawnMeteorsForLevel();
+            
+            updateUI();
+        }
+        
+        // Создание метеоритов для уровня
+        function spawnMeteorsForLevel() {
+            const meteorCount = 5 + level * 2; // Увеличиваем количество метеоритов с каждым уровнем
+            
+            for (let i = 0; i < meteorCount; i++) {
+                let size;
+                const sizeRandom = Math.random();
+                
+                if (sizeRandom < 0.2) {
+                    size = METEOR_LARGE_SIZE;
+                } else if (sizeRandom < 0.5) {
+                    size = METEOR_MEDIUM_SIZE;
+                } else {
+                    size = METEOR_SMALL_SIZE;
+                }
+                
+                meteors.push({
+                    x: Math.random() * (canvas.width - size),
+                    y: -size - Math.random() * 300, // Начинаем выше экрана
+                    width: size,
+                    height: size,
+                    speed: METEOR_SPEED_MIN + Math.random() * (METEOR_SPEED_MAX - METEOR_SPEED_MIN),
+                    health: size === METEOR_LARGE_SIZE ? 3 : (size === METEOR_MEDIUM_SIZE ? 2 : 1)
+                });
+            }
+        }
+        
+        // Обновление UI
+        function updateUI() {
+            scoreDisplay.textContent = 'СЧЕТ: ' + score;
+            livesDisplay.textContent = 'ЖИЗНИ: ' + lives;
+            levelDisplay.textContent = 'УРОВЕНЬ: ' + level;
+        }
+        
+        // Основной игровой цикл
+        function gameLoop() {
+            if (!gameActive) return;
+            
+            // Очищаем холст
+            ctx.fillStyle = COLORS.background;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Рисуем звезды
+            drawStars();
+            
+            // Рисуем Землю внизу экрана
+            drawEarth();
+            
+            // Обновляем и рисуем игрока
+            updatePlayer();
+            drawPlayer();
+            
+            // Обновляем и рисуем пули
+            updateBullets();
+            drawBullets();
+            
+            // Обновляем и рисуем метеориты
+            updateMeteors();
+            drawMeteors();
+            
+            // Обновляем и рисуем бонусы
+            updatePowerUps();
+            drawPowerUps();
+            
+            // Проверяем столкновения
+            checkCollisions();
+            
+            // Проверяем условия победы на уровне
+            checkLevelComplete();
+            
+            // Проверяем бонусы игрока
+            checkPlayerPowerUps();
+            
+            // Запрашиваем следующий кадр
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Рисуем звезды
+        function drawStars() {
+            stars.forEach(star => {
+                ctx.fillStyle = star.color;
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+                
+                // Двигаем звезды вниз для эффекта движения
+                star.y += star.speed;
+                
+                // Если звезда вышла за пределы экрана, возвращаем ее наверх
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+            });
+        }
+        
+        // Рисуем Землю
+        function drawEarth() {
+            // Рисуем Землю как полукруг внизу экрана
+            ctx.fillStyle = COLORS.earth;
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, canvas.height + 250, 300, 0, Math.PI, true);
+            ctx.fill();
+            
+            // Добавляем "континенты"
+            ctx.fillStyle = COLORS.earthLand;
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2 - 100, canvas.height + 200, 50, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2 + 80, canvas.height + 220, 70, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Добавляем "облака"
+            ctx.fillStyle = COLORS.earthClouds;
+            ctx.globalAlpha = 0.4;
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2 - 150, canvas.height + 180, 30, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2 + 150, canvas.height + 190, 40, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.globalAlpha = 1.0;
+        }
+        
+        // Обновляем состояние игрока
+        function updatePlayer() {
+            // Движение игрока
+            if (player.isMovingLeft && player.x > 0) {
+                player.x -= player.speed;
+            }
+            if (player.isMovingRight && player.x < canvas.width - player.width) {
+                player.x += player.speed;
+            }
+            if (player.isMovingUp && player.y > canvas.height / 2) {
+                player.y -= player.speed;
+            }
+            if (player.isMovingDown && player.y < canvas.height - player.height - 10) {
+                player.y += player.speed;
+            }
+            
+            // Стрельба
+            if (player.isShooting) {
+                const now = Date.now();
+                const shootDelay = player.powerUps.rapidFire ? player.shootDelay / 3 : player.shootDelay;
+                
+                if (now - player.lastShot > shootDelay) {
+                    // Создаем пулю
+                    bullets.push({
+                        x: player.x + player.width / 2 - BULLET_WIDTH / 2,
+                        y: player.y,
+                        width: BULLET_WIDTH,
+                        height: BULLET_HEIGHT,
+                        speed: BULLET_SPEED,
+                        damage: player.powerUps.doubleDamage ? 2 : 1
+                    });
+                    
+                    player.lastShot = now;
+                }
+            }
+        }
+        
+        // Рисуем игрока
+        function drawPlayer() {
+            // Рисуем корабль игрока
+            ctx.fillStyle = COLORS.player;
+            
+            // Если есть щит, рисуем его
+            if (player.powerUps.shield) {
+                ctx.fillStyle = COLORS.playerShield;
+                ctx.beginPath();
+                ctx.arc(player.x + player.width / 2, player.y + player.height / 2, 
+                        Math.max(player.width, player.height) / 2 + 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = COLORS.player;
+            }
+            
+            // Рисуем треугольный корабль
+            ctx.beginPath();
+            ctx.moveTo(player.x + player.width / 2, player.y);
+            ctx.lineTo(player.x, player.y + player.height);
+            ctx.lineTo(player.x + player.width, player.y + player.height);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Рисуем двигатель
+            ctx.fillStyle = '#ff0';
+            ctx.beginPath();
+            ctx.moveTo(player.x + player.width / 2 - 5, player.y + player.height);
+            ctx.lineTo(player.x + player.width / 2 + 5, player.y + player.height);
+            ctx.lineTo(player.x + player.width / 2, player.y + player.height + 10);
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        // Обновляем состояние пуль
+        function updateBullets() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].y -= bullets[i].speed;
+                
+                // Удаляем пули, вышедшие за пределы экрана
+                if (bullets[i].y + bullets[i].height < 0) {
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+        
+        // Рисуем пули
+        function drawBullets() {
+            bullets.forEach(bullet => {
+                ctx.fillStyle = bullet.damage > 1 ? COLORS.bulletDoubleDamage : COLORS.bullet;
+                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+        }
+        
+        // Обновляем состояние метеоритов
+        function updateMeteors() {
+            for (let i = meteors.length - 1; i >= 0; i--) {
+                meteors[i].y += meteors[i].speed;
+                
+                // Проверяем, достиг ли метеорит Земли
+                if (meteors[i].y > canvas.height) {
+                    // Игрок теряет жизнь
+                    lives--;
+                    updateUI();
+                    
+                    // Удаляем метеорит
+                    meteors.splice(i, 1);
+                    
+                    // Проверяем, проиграл ли игрок
+                    if (lives <= 0) {
+                        gameOver(false);
+                    }
+                }
+            }
+        }
+        
+        // Рисуем метеориты
+        function drawMeteors() {
+            meteors.forEach(meteor => {
+                let color;
+                if (meteor.width === METEOR_LARGE_SIZE) {
+                    color = COLORS.meteorLarge;
+                } else if (meteor.width === METEOR_MEDIUM_SIZE) {
+                    color = COLORS.meteorMedium;
+                } else {
+                    color = COLORS.meteorSmall;
+                }
+                
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(meteor.x + meteor.width / 2, meteor.y + meteor.height / 2, 
+                        meteor.width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Добавляем кратеры для реалистичности
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(meteor.x + meteor.width / 3, meteor.y + meteor.height / 3, 
+                        meteor.width / 10, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(meteor.x + meteor.width * 2/3, meteor.y + meteor.height * 2/3, 
+                        meteor.width / 8, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        // Обновляем состояние бонусов
+        function updatePowerUps() {
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                powerUps[i].y += POWER_UP_SPEED;
+                
+                // Удаляем бонусы, вышедшие за пределы экрана
+                if (powerUps[i].y > canvas.height) {
+                    powerUps.splice(i, 1);
+                }
+            }
+        }
+        
+        // Рисуем бонусы
+        function drawPowerUps() {
+            powerUps.forEach(powerUp => {
+                let color;
+                switch (powerUp.type) {
+                    case 'rapidFire':
+                        color = COLORS.powerUpRapidFire;
+                        break;
+                    case 'shield':
+                        color = COLORS.powerUpShield;
+                        break;
+                    case 'doubleDamage':
+                        color = COLORS.powerUpDoubleDamage;
+                        break;
+                }
+                
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(powerUp.x + POWER_UP_SIZE / 2, powerUp.y + POWER_UP_SIZE / 2, 
+                        POWER_UP_SIZE / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Рисуем символ бонуса
+                ctx.fillStyle = '#000';
+                ctx.font = '16px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                let symbol;
+                switch (powerUp.type) {
+                    case 'rapidFire':
+                        symbol = 'F';
+                        break;
+                    case 'shield':
+                        symbol = 'S';
+                        break;
+                    case 'doubleDamage':
+                        symbol = 'D';
+                        break;
+                }
+                
+                ctx.fillText(symbol, powerUp.x + POWER_UP_SIZE / 2, powerUp.y + POWER_UP_SIZE / 2);
+            });
+        }
+        
+        // Проверяем столкновения
+        function checkCollisions() {
+            // Проверяем столкновения пуль с метеоритами
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                for (let j = meteors.length - 1; j >= 0; j--) {
+                    if (isColliding(bullets[i], meteors[j])) {
+                        // Уменьшаем здоровье метеорита
+                        meteors[j].health -= bullets[i].damage;
+                        
+                        // Удаляем пулю
+                        bullets.splice(i, 1);
+                        
+                        // Если метеорит уничтожен
+                        if (meteors[j].health <= 0) {
+                            // Увеличиваем счет
+                            let points;
+                            if (meteors[j].width === METEOR_LARGE_SIZE) {
+                                points = 30;
+                            } else if (meteors[j].width === METEOR_MEDIUM_SIZE) {
+                                points = 20;
+                            } else {
+                                points = 10;
+                            }
+                            score += points;
+                            
+                            // Шанс появления бонуса
+                            if (Math.random() < POWER_UP_SPAWN_CHANCE) {
+                                spawnPowerUp(meteors[j].x, meteors[j].y);
+                            }
+                            
+                            // Удаляем метеорит
+                            meteors.splice(j, 1);
+                        }
+                        
+                        updateUI();
+                        break; // Пуля уже удалена, переходим к следующей
+                    }
+                }
+            }
+            
+            // Проверяем столкновения игрока с метеоритами
+            for (let i = meteors.length - 1; i >= 0; i--) {
+                if (isColliding(player, meteors[i])) {
+                    // Если у игрока есть щит, он защищен
+                    if (player.powerUps.shield) {
+                        // Уничтожаем метеорит
+                        meteors.splice(i, 1);
+                        // Отключаем щит
+                        player.powerUps.shield = false;
+                    } else {
+                        // Игрок теряет жизнь
+                        lives--;
+                        
+                        // Удаляем метеорит
+                        meteors.splice(i, 1);
+                        
+                        // Проверяем, проиграл ли игрок
+                        if (lives <= 0) {
+                            gameOver(false);
+                            return;
+                        }
+                    }
+                    
+                    updateUI();
+                }
+            }
+            
+            // Проверяем столкновения игрока с бонусами
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                if (isColliding(player, powerUps[i])) {
+                    // Активируем бонус
+                    activatePowerUp(powerUps[i].type);
+                    
+                    // Удаляем бонус
+                    powerUps.splice(i, 1);
+                }
+            }
+        }
+        
+        // Проверка столкновения двух объектов
+        function isColliding(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+        
+        // Создаем бонус
+        function spawnPowerUp(x, y) {
+            const types = ['rapidFire', 'shield', 'doubleDamage'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            powerUps.push({
+                x: x,
+                y: y,
+                width: POWER_UP_SIZE,
+                height: POWER_UP_SIZE,
+                type: type
+            });
+        }
+        
+        // Активируем бонус
+        function activatePowerUp(type) {
+            const now = Date.now();
+            
+            switch (type) {
+                case 'rapidFire':
+                    player.powerUps.rapidFire = true;
+                    player.powerUps.rapidFireUntil = now + POWER_UP_DURATION;
+                    break;
+                case 'shield':
+                    player.powerUps.shield = true;
+                    player.powerUps.shieldUntil = now + POWER_UP_DURATION;
+                    break;
+                case 'doubleDamage':
+                    player.powerUps.doubleDamage = true;
+                    player.powerUps.doubleDamageUntil = now + POWER_UP_DURATION;
+                    break;
+            }
+        }
+        
+        // Проверяем бонусы игрока
+        function checkPlayerPowerUps() {
+            const now = Date.now();
+            
+                    if (player.powerUps.doubleDamage && now > player.powerUps.doubleDamageUntil) {
+            player.powerUps.doubleDamage = false;
+        }
+    }
+    
+    // Проверяем завершение уровня
+    function checkLevelComplete() {
+        if (meteors.length === 0) {
+            // Переходим на следующий уровень
+            level++;
+            updateUI();
+            
+            // Создаем метеориты для нового уровня
+            spawnMeteorsForLevel();
+            
+            // Если игрок прошел 10 уровней, он победил
+            if (level > 10) {
+                gameOver(true);
+            }
+        }
+    }
+    
+    // Конец игры
+    function gameOver(isVictory) {
+        gameActive = false;
+        
+        if (isVictory) {
+            gameOverTitle.textContent = 'ПОБЕДА!';
+            gameOverMessage.textContent = 'Вы спасли Землю от метеоритов!';
+        } else {
+            gameOverTitle.textContent = 'МИССИЯ ПРОВАЛЕНА';
+            gameOverMessage.textContent = 'Метеорит достиг Земли...';
+        }
+        
+        finalScore.textContent = 'Счет: ' + score;
+        gameOverScreen.style.display = 'flex';
+    }
+    
+    // Запускаем игру
+    init();
+</script>
